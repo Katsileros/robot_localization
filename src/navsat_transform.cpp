@@ -92,6 +92,7 @@ namespace RobotLocalization
     nh_priv.param("delay", delay, 0.0);
     nh_priv.param("transform_timeout", transform_timeout, 0.0);
     nh_priv.param("cartesian_frame_id", cartesian_frame_id_, std::string(use_local_cartesian_ ? "local_enu" : "utm"));
+    nh_priv.param("cartesian_transform_accumulation_size", cartesian_transform_accumulation_size_, 1);
     transform_timeout_.fromSec(transform_timeout);
 
     // Check for deprecated parameters
@@ -317,8 +318,6 @@ namespace RobotLocalization
       ROS_INFO_STREAM("Transform world frame pose is: " << transform_world_pose_);
       ROS_INFO_STREAM("World frame->cartesian transform is " << cartesian_world_transform_);
 
-      transform_good_ = true;
-
       // Send out the (static) Cartesian transform in case anyone else would like to use it.
       if (broadcast_cartesian_transform_)
       {
@@ -333,8 +332,38 @@ namespace RobotLocalization
                                              tf2::toMsg(cartesian_world_transform_));
         cartesian_transform_stamped.transform.translation.z = (zero_altitude_ ?
                                                            0.0 : cartesian_transform_stamped.transform.translation.z);
-        cartesian_broadcaster_.sendTransform(cartesian_transform_stamped);
+
+        geometry_msgs::Vector3 translation;
+        if((int) cartesian_transform_vec_.size() < this->cartesian_transform_accumulation_size_) {
+          translation = cartesian_transform_stamped.transform.translation;
+          // ROS_WARN("%%%%%%%%%% cartesian_transform_stamped.transform.translation: (x: %0.9f, y: %0.9f, z: %0.9f) %%%%%%%%%%", translation.x, translation.y, translation.z);
+          cartesian_transform_vec_.push_back(cartesian_transform_stamped);
+        }
+        else {
+          // Accumulate values
+          for(auto transf : cartesian_transform_vec_) {
+            translation.x += transf.transform.translation.x;
+            translation.y += transf.transform.translation.y;
+            translation.z += transf.transform.translation.z;
+          }
+
+          // Average values
+          translation.x /= (float) cartesian_transform_vec_.size();
+          translation.y /= (float) cartesian_transform_vec_.size();
+          translation.z /= (float) cartesian_transform_vec_.size();
+
+          cartesian_transform_stamped.transform.translation.x = translation.x;
+          cartesian_transform_stamped.transform.translation.y = translation.y;
+          cartesian_transform_stamped.transform.translation.z = translation.z;
+
+          cartesian_broadcaster_.sendTransform(cartesian_transform_stamped);
+          ROS_WARN("----- NAVSAT_TRANSFORM: Published cartesian transform after accumulation phase. READY TO GO !!! -----");
+          // ROS_WARN("%%%%%%%%%% cartesian_transform_stamped.transform.translation: (x: %0.9f, y: %0.9f, z: %0.9f) %%%%%%%%%%", translation.x, translation.y, translation.z);
+          
+          transform_good_ = true;
+        }
       }
+      
     }
   }
 
@@ -524,6 +553,7 @@ namespace RobotLocalization
                                                                  ros::Duration(transform_timeout_),
                                                                  offset,
                                                                  tf_silent_failure_);
+
 
     if (can_transform)
     {
