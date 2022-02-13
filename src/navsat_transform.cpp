@@ -30,6 +30,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <fstream>
 #include "robot_localization/navsat_transform.h"
 #include "robot_localization/filter_common.h"
 #include "robot_localization/filter_utilities.h"
@@ -334,23 +335,38 @@ namespace RobotLocalization
                                                            0.0 : cartesian_transform_stamped.transform.translation.z);
 
         geometry_msgs::Vector3 translation;
-        if((int) cartesian_transform_vec_.size() < this->cartesian_transform_accumulation_size_) {
+        if((int) this->cartesian_transform_vec_.size() < this->cartesian_transform_accumulation_size_) {
           translation = cartesian_transform_stamped.transform.translation;
-          // ROS_WARN("%%%%%%%%%% cartesian_transform_stamped.transform.translation: (x: %0.9f, y: %0.9f, z: %0.9f) %%%%%%%%%%", translation.x, translation.y, translation.z);
-          cartesian_transform_vec_.push_back(cartesian_transform_stamped);
+          ROS_WARN("%%%%%%%%%% cartesian_transform_stamped.transform.translation: (x: %0.9f, y: %0.9f, z: %0.9f, yaw: %0.9f) %%%%%%%%%%", translation.x, translation.y, translation.z, imu_yaw);
+          this->cartesian_transform_vec_.push_back(cartesian_transform_stamped);
         }
         else {
+          std::ofstream debug_file("/home/katsi/catkin_ws/devel/lib/agriculture_robot/utm_transform_points.txt", std::ios_base::app);
+          int index = 0;
           // Accumulate values
-          for(auto transf : cartesian_transform_vec_) {
+          for(auto transf : this->cartesian_transform_vec_) {
             translation.x += transf.transform.translation.x;
             translation.y += transf.transform.translation.y;
             translation.z += transf.transform.translation.z;
+
+            debug_file << "UTM Point-" + std::to_string(index) + ": (" + std::to_string(transf.transform.translation.x) + ", " + std::to_string(transf.transform.translation.y) + ", " + std::to_string(transf.transform.translation.z) + ") \n";
+            index++;
           }
 
           // Average values
-          translation.x /= (float) cartesian_transform_vec_.size();
-          translation.y /= (float) cartesian_transform_vec_.size();
-          translation.z /= (float) cartesian_transform_vec_.size();
+          translation.x /= (float) this->cartesian_transform_vec_.size();
+          translation.y /= (float) this->cartesian_transform_vec_.size();
+          translation.z /= (float) this->cartesian_transform_vec_.size();
+
+          // Variance calculation
+          double variance_x = 0.0, variance_y = 0.0, variance_z = 0.0;
+          for(auto transf : this->cartesian_transform_vec_) {
+            variance_x += std::pow(transf.transform.translation.x - translation.x, 2);
+            variance_y += std::pow(transf.transform.translation.y - translation.y, 2);
+            variance_z += std::pow(transf.transform.translation.z - translation.z, 2);
+          }
+          debug_file << "UTM Points Variance: (" + std::to_string(variance_x) + ", " + std::to_string(variance_y) + "," + std::to_string(variance_z) + ") \n";
+          debug_file.close();
 
           cartesian_transform_stamped.transform.translation.x = translation.x;
           cartesian_transform_stamped.transform.translation.y = translation.y;
@@ -358,7 +374,13 @@ namespace RobotLocalization
 
           cartesian_broadcaster_.sendTransform(cartesian_transform_stamped);
           ROS_WARN("----- NAVSAT_TRANSFORM: Published cartesian transform after accumulation phase. READY TO GO !!! -----");
-          // ROS_WARN("%%%%%%%%%% cartesian_transform_stamped.transform.translation: (x: %0.9f, y: %0.9f, z: %0.9f) %%%%%%%%%%", translation.x, translation.y, translation.z);
+          ROS_WARN("%%%%%%%%%% cartesian_transform_stamped.transform.translation: (x: %0.9f, y: %0.9f, z: %0.9f) \n" \
+                  "| cartesian_transform_stamped.transform.rotation: (x: %0.9f, y: %0.9f, z: %0.9f, w: %0.9f) \n" \
+                  "| Variance: (%0.7f, %0.7f, %0.7f) %%%%%%%%%% \n", 
+                  translation.x, translation.y, translation.z, 
+                  cartesian_transform_stamped.transform.rotation.x, cartesian_transform_stamped.transform.rotation.y, 
+                  cartesian_transform_stamped.transform.rotation.z, cartesian_transform_stamped.transform.rotation.w,
+                  variance_x, variance_y, variance_z);
           
           transform_good_ = true;
         }
