@@ -379,6 +379,8 @@ class NavSatTransform
     std::vector<geometry_msgs::TransformStamped> cartesian_transform_vec_;
     bool accumulate_cartesian_transform_;
     int cartesian_transform_accumulation_size_;
+
+    std::vector<sensor_msgs::NavSatFix> lat_lon_vec_;
 };
 
 }  // namespace RobotLocalization

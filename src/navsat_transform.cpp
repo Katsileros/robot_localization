@@ -365,6 +365,11 @@ namespace RobotLocalization
             variance_y += std::pow(transf.transform.translation.y - translation.y, 2);
             variance_z += std::pow(transf.transform.translation.z - translation.z, 2);
           }
+
+          variance_x /= (float) this->cartesian_transform_vec_.size();
+          variance_y /= (float) this->cartesian_transform_vec_.size();
+          variance_z /= (float) this->cartesian_transform_vec_.size();
+
           debug_file << "UTM Points Variance: (" + std::to_string(variance_x) + ", " + std::to_string(variance_y) + "," + std::to_string(variance_z) + ") \n";
           debug_file.close();
 
@@ -372,15 +377,46 @@ namespace RobotLocalization
           cartesian_transform_stamped.transform.translation.y = translation.y;
           cartesian_transform_stamped.transform.translation.z = translation.z;
 
+          // Calculate lat-lon variance
+          double lat = 0.0, lon = 0.0, alt = 0.0;
+          for(auto navsat_fix : this->lat_lon_vec_)
+          {
+            lat += navsat_fix.latitude;
+            lon += navsat_fix.longitude;
+            alt += navsat_fix.altitude;
+          }
+
+          // Average values
+          lat /= (float) this->lat_lon_vec_.size();
+          lon /= (float) this->lat_lon_vec_.size();
+          alt /= (float) this->lat_lon_vec_.size();
+
+          // Calculate variance
+          double variance_lat = 0.0, variance_lon = 0.0, variance_alt = 0.0;
+          for(auto navsat_fix : this->lat_lon_vec_)
+          {
+            variance_lat += std::pow(navsat_fix.latitude - lat, 2);
+            variance_lon += std::pow(navsat_fix.longitude - lon, 2);
+            variance_alt += std::pow(navsat_fix.altitude - alt, 2);
+          }
+
+          variance_lat /= (float) this->lat_lon_vec_.size();
+          variance_lon /= (float) this->lat_lon_vec_.size();
+          variance_alt /= (float) this->lat_lon_vec_.size();
+
           cartesian_broadcaster_.sendTransform(cartesian_transform_stamped);
           ROS_WARN("----- NAVSAT_TRANSFORM: Published cartesian transform after accumulation phase. READY TO GO !!! -----");
           ROS_WARN("%%%%%%%%%% cartesian_transform_stamped.transform.translation: (x: %0.9f, y: %0.9f, z: %0.9f) \n" \
                   "| cartesian_transform_stamped.transform.rotation: (x: %0.9f, y: %0.9f, z: %0.9f, w: %0.9f) \n" \
-                  "| Variance: (%0.7f, %0.7f, %0.7f) %%%%%%%%%% \n", 
+                  "| UTM Variance: (%0.7f, %0.7f, %0.7f) \n" \
+                  "| UTM Std: (%0.7f, %0.7f, %0.7f) \n" \
+                  "| LL Variance: (%0.7f, %0.7f, %0.7f) \n" \
+                  "| LL Std: (%0.7f, %0.7f, %0.7f) %%%%%%%%%% \n", 
                   translation.x, translation.y, translation.z, 
                   cartesian_transform_stamped.transform.rotation.x, cartesian_transform_stamped.transform.rotation.y, 
                   cartesian_transform_stamped.transform.rotation.z, cartesian_transform_stamped.transform.rotation.w,
-                  variance_x, variance_y, variance_z);
+                  variance_x, variance_y, variance_z, std::sqrt(variance_x), std::sqrt(variance_y), std::sqrt(variance_z), 
+                  variance_lat, variance_lon, variance_alt, std::sqrt(variance_lat), std::sqrt(variance_lon), std::sqrt(variance_alt));
           
           transform_good_ = true;
         }
@@ -720,6 +756,8 @@ namespace RobotLocalization
           latest_cartesian_covariance_(i, j) = msg->position_covariance[POSITION_SIZE * i + j];
         }
       }
+
+      this->lat_lon_vec_.push_back(*msg);
 
       gps_update_time_ = msg->header.stamp;
       gps_updated_ = true;
