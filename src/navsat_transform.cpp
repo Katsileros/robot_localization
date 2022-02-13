@@ -94,6 +94,7 @@ namespace RobotLocalization
     nh_priv.param("transform_timeout", transform_timeout, 0.0);
     nh_priv.param("cartesian_frame_id", cartesian_frame_id_, std::string(use_local_cartesian_ ? "local_enu" : "utm"));
     nh_priv.param("cartesian_transform_accumulation_size", cartesian_transform_accumulation_size_, 1);
+    nh_priv.param("cartesian_transform_weighted_sum", cartesian_transform_weighted_sum_, false);
     transform_timeout_.fromSec(transform_timeout);
 
     // Check for deprecated parameters
@@ -343,20 +344,29 @@ namespace RobotLocalization
         else {
           std::ofstream debug_file("/home/katsi/catkin_ws/devel/lib/agriculture_robot/utm_transform_points.txt", std::ios_base::app);
           int index = 0;
+          float denumerator = 0.0;
           // Accumulate values
           for(auto transf : this->cartesian_transform_vec_) {
-            translation.x += transf.transform.translation.x;
-            translation.y += transf.transform.translation.y;
-            translation.z += transf.transform.translation.z;
+            
+            float weight = 1.0;
+            if(this->cartesian_transform_weighted_sum_) {
+              weight = (float)index + 1.0;
+            }
+
+            translation.x += weight * transf.transform.translation.x;
+            translation.y += weight * transf.transform.translation.y;
+            translation.z += weight * transf.transform.translation.z;
 
             debug_file << "UTM Point-" + std::to_string(index) + ": (" + std::to_string(transf.transform.translation.x) + ", " + std::to_string(transf.transform.translation.y) + ", " + std::to_string(transf.transform.translation.z) + ") \n";
             index++;
+            denumerator += weight;
           }
 
           // Average values
-          translation.x /= (float) this->cartesian_transform_vec_.size();
-          translation.y /= (float) this->cartesian_transform_vec_.size();
-          translation.z /= (float) this->cartesian_transform_vec_.size();
+          if(this->cartesian_transform_weighted_sum_)
+          translation.x /= (float) denumerator;
+          translation.y /= (float) denumerator;
+          translation.z /= (float) denumerator;
 
           // Variance calculation
           double variance_x = 0.0, variance_y = 0.0, variance_z = 0.0;
@@ -369,9 +379,6 @@ namespace RobotLocalization
           variance_x /= (float) this->cartesian_transform_vec_.size();
           variance_y /= (float) this->cartesian_transform_vec_.size();
           variance_z /= (float) this->cartesian_transform_vec_.size();
-
-          debug_file << "UTM Points Variance: (" + std::to_string(variance_x) + ", " + std::to_string(variance_y) + "," + std::to_string(variance_z) + ") \n";
-          debug_file.close();
 
           cartesian_transform_stamped.transform.translation.x = translation.x;
           cartesian_transform_stamped.transform.translation.y = translation.y;
@@ -410,14 +417,22 @@ namespace RobotLocalization
                   "| cartesian_transform_stamped.transform.rotation: (x: %0.9f, y: %0.9f, z: %0.9f, w: %0.9f) \n" \
                   "| UTM Variance: (%0.7f, %0.7f, %0.7f) \n" \
                   "| UTM Std: (%0.7f, %0.7f, %0.7f) \n" \
-                  "| LL Variance: (%0.7f, %0.7f, %0.7f) \n" \
-                  "| LL Std: (%0.7f, %0.7f, %0.7f) %%%%%%%%%% \n", 
+                  "| LL Variance: (%0.15f, %0.15f, %0.15f) \n" \
+                  "| LL Std: (%0.15f, %0.15f, %0.15f) %%%%%%%%%% \n", 
                   translation.x, translation.y, translation.z, 
                   cartesian_transform_stamped.transform.rotation.x, cartesian_transform_stamped.transform.rotation.y, 
                   cartesian_transform_stamped.transform.rotation.z, cartesian_transform_stamped.transform.rotation.w,
                   variance_x, variance_y, variance_z, std::sqrt(variance_x), std::sqrt(variance_y), std::sqrt(variance_z), 
                   variance_lat, variance_lon, variance_alt, std::sqrt(variance_lat), std::sqrt(variance_lon), std::sqrt(variance_alt));
           
+          debug_file << "cartesian_transform_stamped.transform.translation: (x: " + std::to_string(translation.x) + ", y: " + std::to_string(translation.y) + ", z: " + std::to_string(translation.z) + ") \n";
+          debug_file << "cartesian_transform_stamped.transform.rotation: (x: " + std::to_string(cartesian_transform_stamped.transform.rotation.x) + ", y: " + std::to_string(cartesian_transform_stamped.transform.rotation.y) + ", z: " + std::to_string(cartesian_transform_stamped.transform.rotation.z) + ", w: " + std::to_string(cartesian_transform_stamped.transform.rotation.w) + ") \n";
+          debug_file << std::setprecision(7) << "UTM Points Variance: (" + std::to_string(variance_x) + ", " + std::to_string(variance_y) + "," + std::to_string(variance_z) + ") \n";
+          debug_file << std::setprecision(7) << "UTM Points Std: (" + std::to_string(std::sqrt(variance_x)) + ", " + std::to_string(std::sqrt(variance_y)) + "," + std::to_string(std::sqrt(variance_z)) + ") \n";
+          debug_file << std::setprecision(15) << "LL Points Variance: (" + std::to_string(variance_lat) + ", " + std::to_string(variance_lon) + "," + std::to_string(variance_alt) + ") \n";
+          debug_file << std::setprecision(15) << "LL Points Std: (" + std::to_string(std::sqrt(variance_lat)) + ", " + std::to_string(std::sqrt(variance_lon)) + "," + std::to_string(std::sqrt(variance_alt)) + ") \n";
+          debug_file.close();
+
           transform_good_ = true;
         }
       }

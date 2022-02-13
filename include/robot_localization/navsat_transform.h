@@ -377,8 +377,8 @@ class NavSatTransform
     tf2_ros::StaticTransformBroadcaster cartesian_broadcaster_;
 
     std::vector<geometry_msgs::TransformStamped> cartesian_transform_vec_;
-    bool accumulate_cartesian_transform_;
     int cartesian_transform_accumulation_size_;
+    bool cartesian_transform_weighted_sum_;
 
     std::vector<sensor_msgs::NavSatFix> lat_lon_vec_;
 };
