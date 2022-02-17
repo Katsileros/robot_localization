@@ -244,7 +244,7 @@ namespace RobotLocalization
     double variance_x = 0.0, variance_y = 0.0, variance_z = 0.0;
     std::ofstream debug_file("/home/katsi/catkin_ws/devel/lib/agriculture_robot/utm_transform_points.txt", std::ios_base::app);
 
-    if (broadcast_cartesian_transform_) 
+    if (broadcast_cartesian_transform_ && !use_manual_datum_) 
     {
       if((int) this->cartesian_transform_vec_.size() < this->cartesian_transform_accumulation_size_) {
         this->cartesian_transform_vec_.push_back(tf2::toMsg(transform_cartesian_pose_));
@@ -416,8 +416,6 @@ namespace RobotLocalization
       ROS_INFO_STREAM("Transform world frame pose is: " << transform_world_pose_);
       ROS_INFO_STREAM("World frame->cartesian transform is " << cartesian_world_transform_);
 
-      transform_good_ = true;
-
       // Send out the (static) Cartesian transform in case anyone else would like to use it.
       if (broadcast_cartesian_transform_)
       {
@@ -433,6 +431,7 @@ namespace RobotLocalization
         cartesian_transform_stamped.transform.translation.z = (zero_altitude_ ?
                                                            0.0 : cartesian_transform_stamped.transform.translation.z);
         cartesian_broadcaster_.sendTransform(cartesian_transform_stamped);
+        transform_good_ = true;
         
         ROS_WARN("----- NAVSAT_TRANSFORM (world_frame_id_: %s): Published cartesian transform after accumulation phase. READY TO GO !!! -----", world_frame_id_.c_str());
         ROS_WARN("%%%%%%%%%% cartesian_transform_stamped.transform.translation: (x: %0.8f, y: %0.8f, z: %0.3f) \n" \
@@ -467,13 +466,12 @@ namespace RobotLocalization
     use_manual_datum_ = true;
 
     transform_good_ = false;
-    has_transform_imu_ = false;
-    has_transform_gps_ = false;
 
     this->cartesian_transform_vec_.clear();
     this->lat_lon_vec_.clear();
     this->orientation_transform_vec_.clear();
 
+    has_transform_gps_ = false;
     sensor_msgs::NavSatFix *fix = new sensor_msgs::NavSatFix();
     fix->latitude = request.geo_pose.position.latitude;
     fix->longitude = request.geo_pose.position.longitude;
@@ -486,11 +484,9 @@ namespace RobotLocalization
     sensor_msgs::NavSatFixConstPtr fix_ptr(fix);
     setTransformGps(fix_ptr);
 
+    has_transform_odom_ = false;
     nav_msgs::Odometry *odom = new nav_msgs::Odometry();
-    odom->pose.pose.orientation.x = 0;
-    odom->pose.pose.orientation.y = 0;
-    odom->pose.pose.orientation.z = 0;
-    odom->pose.pose.orientation.w = 1;
+    odom->pose.pose.orientation = request.geo_pose.orientation;
     odom->pose.pose.position.x = 0;
     odom->pose.pose.position.y = 0;
     odom->pose.pose.position.z = 0;
@@ -499,6 +495,7 @@ namespace RobotLocalization
     nav_msgs::OdometryConstPtr odom_ptr(odom);
     setTransformOdometry(odom_ptr);
 
+    has_transform_imu_ = false;
     sensor_msgs::Imu *imu = new sensor_msgs::Imu();
     imu->orientation = request.geo_pose.orientation;
     imu->header.frame_id = base_link_frame_id_;
@@ -825,7 +822,7 @@ namespace RobotLocalization
                                                                    target_frame_trans,
                                                                    tf_silent_failure_);
 
-      if ((int) this->orientation_transform_vec_.size() < this->orientation_transform_accumulation_size_) {
+      if(!use_manual_datum_ && ((int) this->orientation_transform_vec_.size() < this->orientation_transform_accumulation_size_)) {
         this->orientation_transform_vec_.push_back(tf2::toMsg(transform_orientation_));
         return;
       }
@@ -845,6 +842,10 @@ namespace RobotLocalization
       double roll, pitch, yaw;
       m.getRPY(roll, pitch, yaw);
 
+      // Corner case when use_manual_datum_=True
+      if(this->orientation_transform_vec_.empty()) {
+        avg_yaw = yaw;
+      }
       transform_orientation_.setRPY(roll, pitch, avg_yaw);
 
       if (can_transform)
