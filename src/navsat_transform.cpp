@@ -40,6 +40,7 @@
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 #include "tf2/utils.h"
 #include <XmlRpcException.h>
+#include <angles/angles.h>
 
 #include <string>
 
@@ -95,6 +96,7 @@ namespace RobotLocalization
     nh_priv.param("transform_timeout", transform_timeout, 0.0);
     nh_priv.param("cartesian_frame_id", cartesian_frame_id_, std::string(use_local_cartesian_ ? "local_enu" : "utm"));
     nh_priv.param("cartesian_transform_accumulation_size", cartesian_transform_accumulation_size_, 1);
+    nh_priv.param("orientation_transform_accumulation_size", orientation_transform_accumulation_size_, 1);
     nh_priv.param("cartesian_transform_weighted_sum", cartesian_transform_weighted_sum_, false);
     transform_timeout_.fromSec(transform_timeout);
 
@@ -302,9 +304,12 @@ namespace RobotLocalization
         alt /= (float) this->lat_lon_vec_.size();
 
         sensor_msgs::NavSatFix *fix = new sensor_msgs::NavSatFix();
-        fix->latitude = lat;
-        fix->longitude = lon;
-        fix->altitude = alt;
+
+        std::ostringstream ostr;
+        ostr << std::fixed << std::setprecision(8) << lat << " " << lon << " " << alt;
+        std::istringstream istr(ostr.str());
+        istr >> fix->latitude >> fix->longitude >> fix->altitude;
+
         fix->header.stamp = ros::Time::now();
         fix->position_covariance[0] = 0.1;
         fix->position_covariance[4] = 0.1;
@@ -400,6 +405,7 @@ namespace RobotLocalization
       tf2::Matrix3x3(transform_world_pose_.getRotation()).getRPY(odom_roll, odom_pitch, odom_yaw);
       tf2::Quaternion odom_quat;
       odom_quat.setRPY(0.0, 0.0, odom_yaw);
+
       tf2::Transform transform_world_pose_yaw_only(transform_world_pose_);
       transform_world_pose_yaw_only.setRotation(odom_quat);
 
@@ -428,7 +434,7 @@ namespace RobotLocalization
                                                            0.0 : cartesian_transform_stamped.transform.translation.z);
         cartesian_broadcaster_.sendTransform(cartesian_transform_stamped);
         
-        ROS_WARN("----- NAVSAT_TRANSFORM: Published cartesian transform after accumulation phase. READY TO GO !!! -----");
+        ROS_WARN("----- NAVSAT_TRANSFORM (world_frame_id_: %s): Published cartesian transform after accumulation phase. READY TO GO !!! -----", world_frame_id_.c_str());
         ROS_WARN("%%%%%%%%%% cartesian_transform_stamped.transform.translation: (x: %0.8g, y: %0.8g, z: %0.3g) \n" \
                 "| cartesian_transform_stamped.transform.rotation: (x: %0.6g, y: %0.6g, z: %0.6g, w: %0.6g) | yaw(deg): %0.3f \n" \
                 "| UTM Variance: (%0.8g, %0.8g, %0.3g) \n" \
@@ -437,7 +443,7 @@ namespace RobotLocalization
                 "| LL Std: (%0.8g, %0.8g, %0.8g) %%%%%%%%%% \n", 
                 cartesian_transform_stamped.transform.translation.x, cartesian_transform_stamped.transform.translation.y, cartesian_transform_stamped.transform.translation.z, 
                 cartesian_transform_stamped.transform.rotation.x, cartesian_transform_stamped.transform.rotation.y,
-                cartesian_transform_stamped.transform.rotation.z, cartesian_transform_stamped.transform.rotation.w, tf2::getYaw(cartesian_transform_stamped.transform.rotation), 
+                cartesian_transform_stamped.transform.rotation.z, cartesian_transform_stamped.transform.rotation.w, angles::to_degrees(tf2::getYaw(cartesian_transform_stamped.transform.rotation)), 
                 variance_x, variance_y, variance_z, std::sqrt(variance_x), std::sqrt(variance_y), std::sqrt(variance_z), 
                 variance_lat, variance_lon, variance_alt, std::sqrt(variance_lat), std::sqrt(variance_lon), std::sqrt(variance_alt));
 
@@ -461,9 +467,12 @@ namespace RobotLocalization
     use_manual_datum_ = true;
 
     transform_good_ = false;
+    has_transform_imu_ = false;
+    has_transform_gps_ = false;
 
     this->cartesian_transform_vec_.clear();
     this->lat_lon_vec_.clear();
+    this->orientation_transform_vec_.clear();
 
     sensor_msgs::NavSatFix *fix = new sensor_msgs::NavSatFix();
     fix->latitude = request.geo_pose.position.latitude;
@@ -798,7 +807,7 @@ namespace RobotLocalization
   {
     // We need the baseLinkFrameId_ from the odometry message, so
     // we need to wait until we receive it.
-    if (has_transform_odom_)
+    if (has_transform_odom_ && !has_transform_imu_)
     {
       /* This method only gets called if we don't yet have the
        * IMU data (the subscriber gets shut down once we compute
@@ -816,6 +825,28 @@ namespace RobotLocalization
                                                                    target_frame_trans,
                                                                    tf_silent_failure_);
 
+      if ((int) this->orientation_transform_vec_.size() < this->orientation_transform_accumulation_size_) {
+        this->orientation_transform_vec_.push_back(tf2::toMsg(transform_orientation_));
+        return;
+      }
+
+      double avg_yaw = 0.0;
+      for(auto rot : this->orientation_transform_vec_) {
+        avg_yaw += tf2::getYaw(rot);
+      }
+      avg_yaw /= this->orientation_transform_vec_.size();
+      
+      tf2::Quaternion q(
+        transform_orientation_.getX(),
+        transform_orientation_.getY(),
+        transform_orientation_.getZ(),
+        transform_orientation_.getW());
+      tf2::Matrix3x3 m(q);
+      double roll, pitch, yaw;
+      m.getRPY(roll, pitch, yaw);
+
+      transform_orientation_.setRPY(roll, pitch, avg_yaw);
+
       if (can_transform)
       {
         double roll_offset = 0;
@@ -824,6 +855,7 @@ namespace RobotLocalization
         double roll = 0;
         double pitch = 0;
         double yaw = 0;
+
         RosFilterUtilities::quatToRPY(target_frame_trans.getRotation(), roll_offset, pitch_offset, yaw_offset);
         RosFilterUtilities::quatToRPY(transform_orientation_, roll, pitch, yaw);
 
