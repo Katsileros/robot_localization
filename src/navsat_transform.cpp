@@ -435,12 +435,12 @@ namespace RobotLocalization
         cartesian_broadcaster_.sendTransform(cartesian_transform_stamped);
         
         ROS_WARN("----- NAVSAT_TRANSFORM (world_frame_id_: %s): Published cartesian transform after accumulation phase. READY TO GO !!! -----", world_frame_id_.c_str());
-        ROS_WARN("%%%%%%%%%% cartesian_transform_stamped.transform.translation: (x: %0.8g, y: %0.8g, z: %0.3g) \n" \
-                "| cartesian_transform_stamped.transform.rotation: (x: %0.6g, y: %0.6g, z: %0.6g, w: %0.6g) | yaw(deg): %0.3f \n" \
-                "| UTM Variance: (%0.8g, %0.8g, %0.3g) \n" \
-                "| UTM Std: (%0.8g, %0.8g, %0.3g) \n" \
-                "| LL Variance: (%0.8g, %0.8g, %0.8g) \n" \
-                "| LL Std: (%0.8g, %0.8g, %0.8g) %%%%%%%%%% \n", 
+        ROS_WARN("%%%%%%%%%% cartesian_transform_stamped.transform.translation: (x: %0.8f, y: %0.8f, z: %0.3f) \n" \
+                "| cartesian_transform_stamped.transform.rotation: (x: %0.6f, y: %0.6f, z: %0.6f, w: %0.6f) | yaw(deg): %0.3f \n" \
+                "| UTM Variance: (%0.8f, %0.8f, %0.3f) \n" \
+                "| UTM Std: (%0.8f, %0.8f, %0.3f) \n" \
+                "| LL Variance: (%0.8f, %0.8f, %0.8f) \n" \
+                "| LL Std: (%0.8f, %0.8f, %0.8f) %%%%%%%%%% \n", 
                 cartesian_transform_stamped.transform.translation.x, cartesian_transform_stamped.transform.translation.y, cartesian_transform_stamped.transform.translation.z, 
                 cartesian_transform_stamped.transform.rotation.x, cartesian_transform_stamped.transform.rotation.y,
                 cartesian_transform_stamped.transform.rotation.z, cartesian_transform_stamped.transform.rotation.w, angles::to_degrees(tf2::getYaw(cartesian_transform_stamped.transform.rotation)), 
