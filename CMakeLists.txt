@@ -49,14 +49,14 @@ if(NOT EIGEN3_FOUND)
   set(EIGEN_PACKAGE Eigen)
 endif()
 
-set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD 17)
 
 if(NOT MSVC)
   set_directory_properties(PROPERTIES COMPILE_OPTIONS "-Wall;-Werror")
 endif()
 add_definitions(-DEIGEN_NO_DEBUG -DEIGEN_MPL2_ONLY)
 
-set(ROSLINT_CPP_OPTS "--filter=-build/c++11,-runtime/references")
+set(ROSLINT_CPP_OPTS "--filter=-build/c++17,-runtime/references")
 roslint_cpp()
 
 ###################################
